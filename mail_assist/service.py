@@ -12,7 +12,7 @@ from .mail_client import IMAPClient
 from .scholar import ScholarFetcher
 from .agent import TaskAgent, ScholarAgent, TaskAnalysisResult, ScholarAnalysisResult
 from .parser import ParsedEmail, PaperItem
-
+from .command_handler import CommandHandler
 
 class MailAssistService:
     """系统业务主控制器."""
@@ -39,7 +39,8 @@ class MailAssistService:
             score_threshold=self.cfg.app.scholar_score_threshold
         )
         self.scholar_fetcher = ScholarFetcher(cache_dir=self.cfg.app.cache_dir, proxy=self.cfg.app.proxy)
-
+        self.cmd_handler = CommandHandler(self)
+        self._start_command_server(port=8087)
     def process_email(self, mailbox_name: str, email: ParsedEmail):
         """处理单封邮件的完整生命周期."""
         msg_id = email.message_id
@@ -220,8 +221,131 @@ class MailAssistService:
             finally:
                 client.disconnect()
 
+    def send_startup_message(self):
+        """发送服务启动与指令手册通知到微信."""
+        active_boxes = [m.name for m in self.cfg.mailboxes if m.enabled]
+        title = "🚀 MailAssist 邮件监控服务已就绪"
+        summary = f"状态: 正常运行 (24/7 守护) | 活跃邮箱: {', '.join(active_boxes) or '无'}"
+        
+        details = f"<b>检索范围</b>: 最近 {self.cfg.app.since_days} 天未读邮件<br/>" \
+                  f"<b>轮询周期</b>: 每 {self.cfg.app.poll_interval} 秒 (约 {self.cfg.app.poll_interval // 60} 分钟)<br/>" \
+                  f"<b>论文阈值</b>: {self.cfg.app.scholar_score_threshold} 分及以上推送<br/>" \
+                  f"<b>大模型</b>: {self.cfg.llm.model}<br/>" \
+                  f"<div class=\"highlight\">💡 <b>微信快捷指令支持</b>:<br/>" \
+                  f"• <code>/check</code> : 立即触发邮箱检查<br/>" \
+                  f"• <code>/status</code> : 查看当前运行状态与配置<br/>" \
+                  f"• <code>/days 3</code> : 动态修改抓取天数范围<br/>" \
+                  f"• <code>/interval 60</code> : 动态修改轮询频率(秒)<br/>" \
+                  f"• <code>/score 75</code> : 动态修改论文推荐阈值<br/>" \
+                  f"• <code>/addkw 关键词</code> : 新增关注关键词<br/>" \
+                  f"• <code>/help</code> : 查看完整指令手册</div>"
+
+        md_content = f"""### 🚀 MailAssist 邮件监控服务已就绪！
+**状态**: 🟢 正常运行中 (24/7 后台守护)
+**活跃邮箱**: {', '.join(active_boxes) or '无'}
+**检索范围**: 最近 {self.cfg.app.since_days} 天未读邮件
+**轮询周期**: 每 {self.cfg.app.poll_interval} 秒 (约 {self.cfg.app.poll_interval // 60} 分钟)
+**论文阈值**: {self.cfg.app.scholar_score_threshold} 分及以上推送
+**大模型**: {self.cfg.llm.model}
+
+> 💡 **微信快捷指令支持**：在此对话框回复以下命令可实时调参：
+> - `/check` 或 `查邮件`：立即触发一次邮箱检查
+> - `/status` 或 `状态`：查看当前配置与运行状态
+> - `/days <天数>`：动态调整抓取天数 (如 `/days 3` 或 `/days 30`)
+> - `/interval <秒数>`：动态调整检查频率 (如 `/interval 60`)
+> - `/score <分数>`：动态调整论文推荐阈值 (如 `/score 75`)
+> - `/addkw <关键词>`：添加研究方向关键词
+> - `/delkw <关键词>`：移除研究方向关键词
+> - `/help`：获取完整指令手册"""
+
+        self.notifier.send_dual_notification(
+            title=title,
+            summary=summary,
+            details=details,
+            markdown_content=md_content,
+            url="https://mail.google.com",
+            btntxt="进入邮箱"
+        )
+
+    def _start_command_server(self, port: int = 8087):
+        """在本地监听轻量 HTTP 端口以接收微信回调命令并执行."""
+        import threading, json
+        from urllib.parse import urlparse, parse_qs
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+
+        service_ref = self
+
+        class CmdHTTPHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urlparse(self.path)
+                params = parse_qs(parsed.query)
+                cmd_text = params.get("cmd", [""])[0]
+                if cmd_text:
+                    reply = service_ref.cmd_handler.handle_command(cmd_text)
+                    service_ref.notifier.send_dual_notification(
+                        title="⚙️ MailAssist 指令执行结果",
+                        summary="来自指令热调参",
+                        details=reply.replace("\n", "<br/>"),
+                        markdown_content=reply,
+                        url="https://mail.google.com",
+                        btntxt="查看状态"
+                    )
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(reply.encode("utf-8"))
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"MailAssist Command Server Running")
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length).decode("utf-8", errors="replace")
+                try:
+                    data = json.loads(body)
+                    cmd_text = data.get("command", "")
+                    from_user = data.get("from_user", "@all")
+                    reply = service_ref.cmd_handler.handle_command(cmd_text, from_user)
+                    service_ref.notifier.send_dual_notification(
+                        title="⚙️ MailAssist 指令执行结果",
+                        summary="来自微信指令交互",
+                        details=reply.replace("\n", "<br/>"),
+                        markdown_content=reply,
+                        url="https://mail.google.com",
+                        btntxt="查看状态"
+                    )
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"code": 0, "reply": reply}, ensure_ascii=False).encode("utf-8"))
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(str(e).encode("utf-8"))
+
+            def log_message(self, format, *args):
+                pass
+
+        def run_server():
+            try:
+                httpd = HTTPServer(("127.0.0.1", port), CmdHTTPHandler)
+                logger.info(f"[Command] 本地指令交互服务已就绪: http://127.0.0.1:{port}")
+                httpd.serve_forever()
+            except Exception as e:
+                logger.debug(f"[Command] 本地指令服务未启动 (可能已在运行): {e}")
+
+        t = threading.Thread(target=run_server, daemon=True)
+        t.start()
+
     def run_forever(self, interval_seconds: Optional[int] = None):
         """主循环调度服务."""
+        # 启动时发送一次就绪通知与快捷指令提示
+        try:
+            self.send_startup_message()
+        except Exception as e:
+            logger.warning(f"[MailAssist] 发送启动提示失败: {e}")
+
         poll_interval = interval_seconds or self.cfg.app.poll_interval
         logger.info(f"[MailAssist] 启动后台监控守护服务 (全局轮询周期: {poll_interval} 秒)...")
         while True:
