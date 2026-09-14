@@ -9,6 +9,8 @@
 **MailAssist** is a lightweight, private, and AI-powered mailbox monitoring agent designed for researchers, developers, and engineers.
 It simultaneously listens to multiple email accounts (Gmail, QQ Mail, 163 Mail, and institutional/university IMAP accounts), leveraging Large Language Models (LLMs) to **intelligently score and filter actionable tasks** and **deeply read/evaluate academic alerts (arXiv & Google Scholar)**, instantly pushing dual-channel notifications directly to your **Personal WeChat** and Enterprise WeChat clients.
 
+> 📖 **Step-by-Step SOP Guide**: See [Full Setup & Operations Guide (docs/SOP_SETUP_GUIDE.md)](docs/SOP_SETUP_GUIDE.md) for detailed walk-throughs on email app passwords, free WeCom setup, IP whitelist unlocking, port 80 reverse proxying, and granular proxy routing.
+
 ---
 
 ## ✨ Key Features
