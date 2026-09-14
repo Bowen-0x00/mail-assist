@@ -1,0 +1,70 @@
+# 用户学术与研究兴趣画像配置 (计算机体系结构与 AI 芯片系统方向)
+
+# 1. 核心研究方向与领域 (按优先级排序)
+research_topics:
+  - "计算机体系结构 (Computer Architecture) 与四大体系结构顶级会议 (ISCA, MICRO, HPCA, ASPLOS)"
+  - "AI 加速器芯片设计与大模型专用硬件加速器 (LLM Hardware Accelerators, NPU, DSA)"
+  - "AI 编译器 (AI Compilers: TVM, MLIR, Triton, XLA, Graph/Kernel 自动调优与算子融合)"
+  - "近存计算与存算一体 (Near-Memory Computing, Processing-in-Memory / PIM / PNM)"
+  - "CXL 近存与解耦内存架构 (CXL.mem, Compute Express Link, Disaggregated Memory)"
+  - "Chiplet 芯粒架构、Die-to-Die 互连与先进封装技术 (UCIe, 2.5D/3D Packaging)"
+  - "RISC-V 处理器架构扩展与开源指令集 (RISC-V ISA, Custom Extensions)"
+  - "向量处理器架构 (Vector Processors, RVV, SIMD, Systolic Arrays)"
+  - "算法与系统的 I/O 复杂度理论与通信瓶颈优化 (I/O Complexity, Memory Wall, Communication-Avoiding)"
+
+# 2. 强相关学术会议与关键词
+keywords:
+  # 四大体系结构会议
+  - "ISCA"
+  - "MICRO"
+  - "HPCA"
+  - "ASPLOS"
+  # 体系结构核心词
+  - "Computer Architecture"
+  - "Hardware Accelerator"
+  - "LLM Accelerator"
+  - "AI Accelerator"
+  - "NPU"
+  - "TPU"
+  - "DSA"
+  # 芯片与处理器
+  - "RISC-V"
+  - "Vector Processor"
+  - "RVV"
+  - "Systolic Array"
+  - "Chiplet"
+  - "UCIe"
+  # 内存与近存/存算
+  - "Near-Memory Computing"
+  - "Processing-in-Memory"
+  - "PIM"
+  - "PNM"
+  - "CXL"
+  - "CXL.mem"
+  - "HBM"
+  - "Memory Wall"
+  # 编译器与算法复杂度
+  - "AI Compiler"
+  - "MLIR"
+  - "Triton"
+  - "TVM"
+  - "Operator Fusion"
+  - "I/O Complexity"
+  - "Communication-Avoiding"
+  - "Roofline Model"
+
+# 3. 排除/低优先级领域 (避免无关领域打扰)
+exclude_topics:
+  - "纯前端与移动 App 开发"
+  - "传统生物信息学与医学临床影像 (无体系结构硬件相关)"
+  - "区块链、加密货币与智能合约"
+  - "纯自然语言处理应用层提示工程 (Prompt Engineering, 无系统/硬件加速相关)"
+
+# 4. 论文速读卡片偏好
+summary_preferences:
+  language: "zh"
+  focus_aspects:
+    - "微架构创新 (Microarchitecture Design)"
+    - "能效比与吞吐提升 (PPA / Energy Efficiency / TOPS/W)"
+    - "编译器优化与软硬件协同 (Hardware/Software Co-design)"
+    - "硬件开销与面积评估 (Area Overhead / Memory Footprint)"

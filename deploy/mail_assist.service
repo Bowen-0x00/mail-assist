@@ -1,0 +1,15 @@
+[Unit]
+Description=MailAssist - Intelligent Email Monitor & WeChat Notifier Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/mail_assist
+ExecStart=/root/mail_assist/venv/bin/python run.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

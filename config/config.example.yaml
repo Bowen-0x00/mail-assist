@@ -1,0 +1,66 @@
+# MailAssist 配置文件模板 (请复制为 config/config.yaml 并填入真实凭据)
+
+# 1. 微信通知通道配置 (支持两种方式：企业微信应用直推 或 PushPlus)
+notify:
+  channel: "wechat"                      # 设为 "wechat" 或 "pushplus"
+  pushplus_token: "YOUR_PUSHPLUS_TOKEN"  # 若使用 PushPlus，在此填入 Token
+
+  # 企业微信自建应用参数 (若使用企业微信)
+  corp_id: "YOUR_CORP_ID"
+  agent_id: 1000002
+  corp_secret: "YOUR_CORP_SECRET"
+  to_user: "@all"
+
+# 2. 大语言模型 (LLM) 配置 (兼容 OpenAI 规范，如 DeepSeek、OpenAI、Kimi、Claude 等)
+llm:
+  base_url: "https://api.deepseek.com/v1"
+  api_key: "YOUR_LLM_API_KEY"             # 请填入您的大模型 API Key
+  model: "deepseek-chat"                  # 模型名称
+  temperature: 0.2
+
+# 3. 邮箱监听列表 (支持多邮箱并发监听)
+mailboxes:
+  # QQ 邮箱 (网页端 -> 设置 -> 账户 -> 开启 POP3/IMAP -> 获取16位授权码)
+  - name: "QQ邮箱"
+    type: "imap"
+    host: "imap.qq.com"
+    port: 993
+    ssl: true
+    username: "your_qq_number@qq.com"
+    password: "YOUR_QQ_AUTHORIZATION_CODE"
+    check_interval: 180
+    enabled: false
+    proxy: null
+
+  # Gmail 邮箱 (开启两步验证后生成 16 位“应用专用密码”，国内通常需要代理)
+  - name: "Gmail"
+    type: "imap"
+    host: "imap.gmail.com"
+    port: 993
+    ssl: true
+    username: "your_email@gmail.com"
+    password: "YOUR_GMAIL_APP_PASSWORD"
+    check_interval: 300
+    enabled: false
+    proxy: "http://127.0.0.1:18889"       # 若需要，可指定本地或云端代理端口
+
+  # 高校 / 企业 / 其它 IMAP 邮箱
+  - name: "机构/其他邮箱"
+    type: "imap"
+    host: "imap.example.com"
+    port: 993
+    ssl: true
+    username: "user@example.com"
+    password: "YOUR_PASSWORD"
+    check_interval: 300
+    enabled: false
+    proxy: null
+
+# 4. 调度与存储配置
+app:
+  db_path: "data/mail_assist.db"           # SQLite 数据库路径
+  cache_dir: "data/cache"                  # 临时缓存目录
+  max_fetch_emails_per_round: 10          # 每次检查单邮箱最大拉取未读邮件数
+  scholar_score_threshold: 65             # 论文相关度推送阈值 (0-100分)
+  task_importance_threshold: 3            # 事务重要度推送阈值 (1-5分)
+  proxy: "http://127.0.0.1:18889"         # 学术论文与 PDF 抓取代理 (可选)
