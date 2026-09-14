@@ -89,8 +89,8 @@ class IMAPClient:
 
         parsed_list: List[ParsedEmail] = []
         try:
-            # 选择收件箱
-            status, _ = self._conn.select("INBOX", readonly=False)
+            # 选择收件箱 (采用 readonly=True 只读模式，严防修改邮件已读/未读状态)
+            status, _ = self._conn.select("INBOX", readonly=True)
             if status != "OK":
                 logger.warning(f"[{self.config.name}] 无法打开 INBOX")
                 return []
@@ -117,7 +117,8 @@ class IMAPClient:
             target_ids = msg_ids[-max_count:]
             for mid in target_ids:
                 try:
-                    res_type, res_data = self._conn.fetch(mid, "(RFC822)")
+                    # 使用 BODY.PEEK[] 静默探查正文，绝对不影响 Gmail / QQ 上的未读 (Seen) 状态
+                    res_type, res_data = self._conn.fetch(mid, "(BODY.PEEK[])")
                     if res_type != "OK" or not res_data or not res_data[0]:
                         continue
 
