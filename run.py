@@ -104,8 +104,8 @@ def main():
     parser.add_argument("--test-scholar", action="store_true", help="模拟测试学术论文研读与通知")
     parser.add_argument("--test-task", action="store_true", help="模拟测试重要待办事务识别与通知")
     parser.add_argument("--once", action="store_true", help="单次运行：检查所有配置邮箱后退出")
-    parser.add_argument("--interval", type=int, default=180, help="轮询周期间隔 (秒，默认 180)")
-
+    parser.add_argument("--interval", type=int, default=None, help="轮询周期间隔 (秒，默认读取配置 poll_interval)")
+    parser.add_argument("--since-days", type=int, default=None, help="覆盖抓取时间范围 (天，默认读取配置 since_days: 7)")
     args = parser.parse_args()
 
     cfg = ConfigManager()
@@ -125,11 +125,10 @@ def main():
 
     if args.once:
         logger.info("执行单次邮件检查...")
-        service.check_all_mailboxes()
+        service.check_all_mailboxes(override_since_days=args.since_days)
         logger.info("单次检查完成")
         return
 
-    # 默认常驻运行
     service.run_forever(interval_seconds=args.interval)
 
 

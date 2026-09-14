@@ -81,8 +81,8 @@ class IMAPClient:
                 pass
             self._conn = None
 
-    def fetch_unseen_emails(self, max_count: int = 10) -> List[ParsedEmail]:
-        """拉取收件箱中的未读邮件 (UNSEEN)."""
+    def fetch_unseen_emails(self, max_count: int = 10, since_days: Optional[int] = 7) -> List[ParsedEmail]:
+        """拉取收件箱中的未读邮件 (支持配置最近 N 天的范围过滤)."""
         if not self._conn:
             if not self.connect():
                 return []
@@ -95,15 +95,24 @@ class IMAPClient:
                 logger.warning(f"[{self.config.name}] 无法打开 INBOX")
                 return []
 
-            # 检索未读邮件
-            typ, data = self._conn.search(None, "UNSEEN")
+            # 检索未读邮件 (支持按天数范围过滤，大幅提升速度并忽略远古未读)
+            if since_days and since_days > 0:
+                from datetime import datetime, timedelta
+                since_dt = datetime.now() - timedelta(days=since_days)
+                months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                since_str = f"{since_dt.day:02d}-{months[since_dt.month - 1]}-{since_dt.year}"
+                typ, data = self._conn.search(None, "UNSEEN", f"SINCE {since_str}")
+                date_hint = f"(最近 {since_days} 天内)"
+            else:
+                typ, data = self._conn.search(None, "UNSEEN")
+                date_hint = "(全量未读)"
+
             if typ != "OK" or not data or not data[0]:
-                logger.debug(f"[{self.config.name}] 没有新的未读邮件")
+                logger.debug(f"[{self.config.name}] 没有新的未读邮件 {date_hint}")
                 return []
 
             msg_ids = data[0].split()
-            logger.info(f"[{self.config.name}] 发现 {len(msg_ids)} 封未读邮件，拉取最新 {min(len(msg_ids), max_count)} 封")
-
+            logger.info(f"[{self.config.name}] 发现 {len(msg_ids)} 封未读邮件 {date_hint}，拉取最新 {min(len(msg_ids), max_count)} 封")
             # 取最新的 N 封 (倒序)
             target_ids = msg_ids[-max_count:]
             for mid in target_ids:

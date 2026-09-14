@@ -19,7 +19,7 @@ class MailboxConfig:
     check_interval: int = 180
     enabled: bool = True
     proxy: Optional[str] = None
-
+    since_days: Optional[int] = None
 
 @dataclass
 class NotifyConfig:
@@ -46,7 +46,8 @@ class AppConfig:
     scholar_score_threshold: int = 65
     task_importance_threshold: int = 3
     proxy: Optional[str] = None
-
+    since_days: int = 7
+    poll_interval: int = 180
 
 @dataclass
 class UserProfile:
@@ -116,9 +117,9 @@ class ConfigManager:
                 password=m.get("password", ""),
                 check_interval=int(m.get("check_interval", 180)),
                 enabled=bool(m.get("enabled", False)),
-                proxy=m.get("proxy")
+                proxy=m.get("proxy"),
+                since_days=int(m["since_days"]) if m.get("since_days") is not None else None
             ))
-
         # 4. App 参数
         ac = raw.get("app", {})
         self.app = AppConfig(
@@ -127,9 +128,10 @@ class ConfigManager:
             max_fetch_emails_per_round=int(ac.get("max_fetch_emails_per_round", 10)),
             scholar_score_threshold=int(ac.get("scholar_score_threshold", 65)),
             task_importance_threshold=int(ac.get("task_importance_threshold", 3)),
-            proxy=ac.get("proxy")
+            proxy=ac.get("proxy"),
+            since_days=int(ac.get("since_days", 7)) if ac.get("since_days") is not None else 7,
+            poll_interval=int(ac.get("poll_interval", 180))
         )
-
         # 5. 用户画像
         if os.path.exists(self.profile_path):
             with open(self.profile_path, "r", encoding="utf-8") as f:

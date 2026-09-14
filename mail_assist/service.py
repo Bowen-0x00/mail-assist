@@ -1,7 +1,7 @@
 """邮件监控与通知核心业务编排服务."""
 
 import time
-from typing import List
+from typing import List, Optional, Dict, Any
 from loguru import logger
 
 from .config import ConfigManager, MailboxConfig
@@ -196,7 +196,7 @@ class MailAssistService:
             summary=f"已阅读分析 {len(email.papers)} 篇论文"
         )
 
-    def check_all_mailboxes(self):
+    def check_all_mailboxes(self, override_since_days: Optional[int] = None):
         """遍历所有已启用的邮箱并拉取未读邮件."""
         active_boxes = [m for m in self.cfg.mailboxes if m.enabled]
         if not active_boxes:
@@ -204,21 +204,29 @@ class MailAssistService:
             return
 
         for m_cfg in active_boxes:
-            logger.info(f"[{m_cfg.name}] 正在检查未读邮件...")
+            since_days = override_since_days if override_since_days is not None else (
+                m_cfg.since_days if m_cfg.since_days is not None else self.cfg.app.since_days
+            )
+            date_desc = f"最近 {since_days} 天" if since_days else "全量历史"
+            logger.info(f"[{m_cfg.name}] 正在检查未读邮件 (检索范围: {date_desc})...")
             client = IMAPClient(m_cfg)
             try:
-                emails = client.fetch_unseen_emails(max_count=self.cfg.app.max_fetch_emails_per_round)
+                emails = client.fetch_unseen_emails(
+                    max_count=self.cfg.app.max_fetch_emails_per_round,
+                    since_days=since_days
+                )
                 for mail in emails:
                     self.process_email(m_cfg.name, mail)
             finally:
                 client.disconnect()
 
-    def run_forever(self, interval_seconds: int = 180):
+    def run_forever(self, interval_seconds: Optional[int] = None):
         """主循环调度服务."""
-        logger.info(f"[MailAssist] 启动后台监控守护服务 (轮询周期: {interval_seconds} 秒)...")
+        poll_interval = interval_seconds or self.cfg.app.poll_interval
+        logger.info(f"[MailAssist] 启动后台监控守护服务 (全局轮询周期: {poll_interval} 秒)...")
         while True:
             try:
                 self.check_all_mailboxes()
             except Exception as e:
                 logger.error(f"[MailAssist] 轮询异常: {e}")
-            time.sleep(interval_seconds)
+            time.sleep(poll_interval)
