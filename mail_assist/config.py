@@ -3,8 +3,31 @@
 import os
 import yaml
 from dataclasses import dataclass, field
+from datetime import datetime, time
 from typing import List, Dict, Any, Optional
 from loguru import logger
+
+
+def is_in_quiet_hours(quiet_str: str, now: Optional[datetime] = None) -> bool:
+    """判定当前时间是否处于免打扰休眠时段 (支持跨午夜，如 23:00-09:00)."""
+    if not quiet_str or quiet_str.lower() in ("off", "none", "false", "0", "关闭"):
+        return False
+    try:
+        parts = quiet_str.strip().split("-")
+        if len(parts) != 2:
+            return False
+        sh, sm = map(int, parts[0].strip().split(":"))
+        eh, em = map(int, parts[1].strip().split(":"))
+        start_t = time(sh, sm)
+        end_t = time(eh, em)
+        cur_t = (now or datetime.now()).time()
+
+        if start_t <= end_t:
+            return start_t <= cur_t < end_t
+        else:
+            return cur_t >= start_t or cur_t < end_t
+    except Exception:
+        return False
 
 
 @dataclass
@@ -48,7 +71,7 @@ class AppConfig:
     proxy: Optional[str] = None
     since_days: int = 7
     poll_interval: int = 180
-
+    quiet_hours: str = "23:00-09:00"
 @dataclass
 class UserProfile:
     research_topics: List[str] = field(default_factory=list)
@@ -130,7 +153,8 @@ class ConfigManager:
             task_importance_threshold=int(ac.get("task_importance_threshold", 3)),
             proxy=ac.get("proxy"),
             since_days=int(ac.get("since_days", 7)) if ac.get("since_days") is not None else 7,
-            poll_interval=int(ac.get("poll_interval", 180))
+            poll_interval=int(ac.get("poll_interval", 180)),
+            quiet_hours=str(ac.get("quiet_hours", "23:00-09:00"))
         )
         # 5. 用户画像
         if os.path.exists(self.profile_path):

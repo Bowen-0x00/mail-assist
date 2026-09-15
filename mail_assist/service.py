@@ -63,24 +63,28 @@ class MailAssistService:
 
         notified = False
         if result.need_notify:
-            stars = "⭐" * result.importance_score
-            urgency_txt = f"【{result.urgency.upper()}】" if result.urgency in ("high", "medium") else ""
-            title = f"🔔 {urgency_txt}{email.subject[:35]}"
-            summary = f"来源: {mailbox_name} | 时间: {email.date_str or '刚刚'}"
-            
-            # 1. 微信原生卡片内容 (HTML 格式)
-            details = f"<b>发件人</b>: {email.sender[:45]}<br/>" \
-                      f"<b>重要度</b>: {stars} ({result.importance_score}/5)<br/>"
-            if result.deadline:
-                details += f"⏰ <b>截止时间</b>: {result.deadline}<br/>"
-            if result.action_summary:
-                details += f"👉 <b>建议行动</b>: {result.action_summary}<br/>"
-            details += f"<div class=\"highlight\">理由: {result.reason}</div>"
+            from .config import is_in_quiet_hours
+            if is_in_quiet_hours(self.cfg.app.quiet_hours):
+                logger.info(f"[{mailbox_name}] 当前处于夜间休眠免打扰时段 ({self.cfg.app.quiet_hours})，静默记录不发微信推送: {email.subject[:30]}")
+            else:
+                stars = "⭐" * result.importance_score
+                urgency_txt = f"【{result.urgency.upper()}】" if result.urgency in ("high", "medium") else ""
+                title = f"🔔 {urgency_txt}{email.subject[:35]}"
+                summary = f"来源: {mailbox_name} | 时间: {email.date_str or '刚刚'}"
+                
+                # 1. 微信原生卡片内容 (HTML 格式)
+                details = f"<b>发件人</b>: {email.sender[:45]}<br/>" \
+                          f"<b>重要度</b>: {stars} ({result.importance_score}/5)<br/>"
+                if result.deadline:
+                    details += f"⏰ <b>截止时间</b>: {result.deadline}<br/>"
+                if result.action_summary:
+                    details += f"👉 <b>建议行动</b>: {result.action_summary}<br/>"
+                details += f"<div class=\"highlight\">理由: {result.reason}</div>"
 
-            # 2. 企微 Markdown 富文本内容 (Markdown 格式)
-            deadline_info = f"\n> **⏰ 截止时间**: {result.deadline}" if result.deadline else ""
-            action_info = f"\n> **👉 行动建议**: {result.action_summary}" if result.action_summary else ""
-            md_content = f"""### 🔔 发现重要邮件待处理 {urgency_txt}
+                # 2. 企微 Markdown 富文本内容 (Markdown 格式)
+                deadline_info = f"\n> **⏰ 截止时间**: {result.deadline}" if result.deadline else ""
+                action_info = f"\n> **👉 行动建议**: {result.action_summary}" if result.action_summary else ""
+                md_content = f"""### 🔔 发现重要邮件待处理 {urgency_txt}
 **来源**: {mailbox_name}
 **发件人**: {email.sender}
 **主　题**: {email.subject}
@@ -89,15 +93,15 @@ class MailAssistService:
 **判定理由**: {result.reason}
 **时间**: {email.date_str or '刚刚'}"""
 
-            mail_url = "https://mail.google.com" if "gmail" in mailbox_name.lower() else "https://mail.qq.com"
-            notified = self.notifier.send_dual_notification(
-                title=title,
-                summary=summary,
-                details=details,
-                markdown_content=md_content,
-                url=mail_url,
-                btntxt="打开邮箱"
-            )
+                mail_url = "https://mail.google.com" if "gmail" in mailbox_name.lower() else "https://mail.qq.com"
+                notified = self.notifier.send_dual_notification(
+                    title=title,
+                    summary=summary,
+                    details=details,
+                    markdown_content=md_content,
+                    url=mail_url,
+                    btntxt="打开邮箱"
+                )
         # 写入数据库记录去重
         self.storage.record_email(
             message_id=email.message_id,
@@ -137,20 +141,24 @@ class MailAssistService:
 
             paper_notified = False
             if res.need_notify:
-                title = f"📚 论文推荐({res.relevance_score}分): {res.title[:30]}"
-                summary = f"匹配度: 🔥 {res.relevance_score}分 | 来源: {detail.source}"
-                details = f"<b>💡 核心贡献</b>: {res.core_contribution}<br/>" \
-                          f"<b>🛠️ 方法亮点</b>: {res.method_highlight}<br/>" \
-                          f"<b>🎯 启发价值</b>: {res.relevance_reason}"
-                if res.tags:
-                    details += f"<br/><div class=\"gray\">标签: {' '.join(res.tags)}</div>"
+                from .config import is_in_quiet_hours
+                if is_in_quiet_hours(self.cfg.app.quiet_hours):
+                    logger.info(f"[Paper] 当前处于夜间休眠免打扰时段 ({self.cfg.app.quiet_hours})，静默记录不发微信推送: {res.title[:30]}")
+                else:
+                    title = f"📚 论文推荐({res.relevance_score}分): {res.title[:30]}"
+                    summary = f"匹配度: 🔥 {res.relevance_score}分 | 来源: {detail.source}"
+                    details = f"<b>💡 核心贡献</b>: {res.core_contribution}<br/>" \
+                              f"<b>🛠️ 方法亮点</b>: {res.method_highlight}<br/>" \
+                              f"<b>🎯 启发价值</b>: {res.relevance_reason}"
+                    if res.tags:
+                        details += f"<br/><div class=\"gray\">标签: {' '.join(res.tags)}</div>"
 
-                tags_str = " ".join([f"`{t}`" for t in res.tags]) if res.tags else ""
-                links = f"[🔗 查看论文]({res.url})"
-                if res.pdf_url:
-                    links += f" | [📄 下载 PDF]({res.pdf_url})"
+                    tags_str = " ".join([f"`{t}`" for t in res.tags]) if res.tags else ""
+                    links = f"[🔗 查看论文]({res.url})"
+                    if res.pdf_url:
+                        links += f" | [📄 下载 PDF]({res.pdf_url})"
 
-                md_content = f"""### 📚 发现高相关学术论文推荐
+                    md_content = f"""### 📚 发现高相关学术论文推荐
 **论文**: {res.title}
 **匹配度**: 🔥 **{res.relevance_score} 分** {tags_str}
 > **💡 核心创新**: {res.core_contribution}
@@ -159,17 +167,17 @@ class MailAssistService:
 
 {links}"""
 
-                target_url = res.pdf_url or res.url
-                paper_notified = self.notifier.send_dual_notification(
-                    title=title,
-                    summary=summary,
-                    details=details,
-                    markdown_content=md_content,
-                    url=target_url,
-                    btntxt="查阅论文"
-                )
-                if paper_notified:
-                    notified_any = True
+                    target_url = res.pdf_url or res.url
+                    paper_notified = self.notifier.send_dual_notification(
+                        title=title,
+                        summary=summary,
+                        details=details,
+                        markdown_content=md_content,
+                        url=target_url,
+                        btntxt="查阅论文"
+                    )
+                    if paper_notified:
+                        notified_any = True
 
             self.storage.record_paper(
                 paper_id=res.paper_id,
@@ -228,22 +236,26 @@ class MailAssistService:
         summary = f"状态: 正常运行 (24/7 守护) | 活跃邮箱: {', '.join(active_boxes) or '无'}"
         
         details = f"<b>检索范围</b>: 最近 {self.cfg.app.since_days} 天未读邮件<br/>" \
+                  f"<b>免打扰时段</b>: {self.cfg.app.quiet_hours} (夜间静默不打扰)<br/>" \
                   f"<b>轮询周期</b>: 每 {self.cfg.app.poll_interval} 秒 (约 {self.cfg.app.poll_interval // 60} 分钟)<br/>" \
                   f"<b>论文阈值</b>: {self.cfg.app.scholar_score_threshold} 分及以上推送<br/>" \
                   f"<b>大模型</b>: {self.cfg.llm.model}<br/>" \
                   f"<div class=\"highlight\">💡 <b>微信快捷指令支持</b>:<br/>" \
-                  f"• <code>/check</code> : 立即触发邮箱检查<br/>" \
+                  f"• <code>/check</code> : 立即触发一次邮箱检查<br/>" \
                   f"• <code>/status</code> : 查看当前运行状态与配置<br/>" \
-                  f"• <code>/days 3</code> : 动态修改抓取天数范围<br/>" \
+                  f"• <code>/quiet 23:00-09:00</code> : 设置夜间免打扰休眠时段<br/>" \
+                  f"• <code>/quiet off</code> : 关闭免打扰，全天候即时推送<br/>" \
+                  f"• <code>/days 3</code> : 修改全局抓取天数范围<br/>" \
+                  f"• <code>/days Gmail 3</code> : 为单个邮箱单独设置天数<br/>" \
                   f"• <code>/interval 60</code> : 动态修改轮询频率(秒)<br/>" \
                   f"• <code>/score 75</code> : 动态修改论文推荐阈值<br/>" \
-                  f"• <code>/addkw 关键词</code> : 新增关注关键词<br/>" \
                   f"• <code>/help</code> : 查看完整指令手册</div>"
 
         md_content = f"""### 🚀 MailAssist 邮件监控服务已就绪！
 **状态**: 🟢 正常运行中 (24/7 后台守护)
 **活跃邮箱**: {', '.join(active_boxes) or '无'}
 **检索范围**: 最近 {self.cfg.app.since_days} 天未读邮件
+**免打扰时段**: `{self.cfg.app.quiet_hours}` (夜间静默不推送)
 **轮询周期**: 每 {self.cfg.app.poll_interval} 秒 (约 {self.cfg.app.poll_interval // 60} 分钟)
 **论文阈值**: {self.cfg.app.scholar_score_threshold} 分及以上推送
 **大模型**: {self.cfg.llm.model}
@@ -251,13 +263,13 @@ class MailAssistService:
 > 💡 **微信快捷指令支持**：在此对话框回复以下命令可实时调参：
 > - `/check` 或 `查邮件`：立即触发一次邮箱检查
 > - `/status` 或 `状态`：查看当前配置与运行状态
+> - `/quiet 23:00-09:00`：设置夜间免打扰休眠时段 (在此期间不弹窗)
+> - `/quiet off`：关闭免打扰休眠时段
 > - `/days <天数>`：动态调整抓取天数 (如 `/days 3` 或 `/days 30`)
+> - `/days <邮箱名> <天数>`：单独为指定邮箱设置天数 (如 `/days Gmail 3`)
 > - `/interval <秒数>`：动态调整检查频率 (如 `/interval 60`)
 > - `/score <分数>`：动态调整论文推荐阈值 (如 `/score 75`)
-> - `/addkw <关键词>`：添加研究方向关键词
-> - `/delkw <关键词>`：移除研究方向关键词
 > - `/help`：获取完整指令手册"""
-
         self.notifier.send_dual_notification(
             title=title,
             summary=summary,

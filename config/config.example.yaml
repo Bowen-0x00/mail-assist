@@ -63,6 +63,7 @@ app:
   max_fetch_emails_per_round: 10          # 每次检查单邮箱最大拉取未读邮件数
   since_days: 7                           # 抓取范围：仅处理最近 N 天内的未读邮件 (默认 7 天，设为 0 或 null 则全量)
   poll_interval: 180                      # 全局监听轮询周期 (秒，默认 180 秒 = 3 分钟)
+  quiet_hours: "23:00-09:00"              # 夜间免打扰休眠时段 (在此期间静默不推送，支持 /quiet 指令热调整)
   scholar_score_threshold: 65             # 论文相关度推送阈值 (0-100分)
   task_importance_threshold: 3            # 事务重要度推送阈值 (1-5分)
   proxy: "http://127.0.0.1:18889"         # 学术论文与 PDF 抓取代理 (可选)
