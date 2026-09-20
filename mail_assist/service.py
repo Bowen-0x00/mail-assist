@@ -84,24 +84,44 @@ class MailAssistService:
                 # 2. 企微 Markdown 富文本内容 (Markdown 格式)
                 deadline_info = f"\n> **⏰ 截止时间**: {result.deadline}" if result.deadline else ""
                 action_info = f"\n> **👉 行动建议**: {result.action_summary}" if result.action_summary else ""
-                md_content = f"""### 🔔 发现重要邮件待处理 {urgency_txt}
+                # 记录数据库以获取唯一编号 ID
+                email_id = self.storage.record_email(
+                    message_id=email.message_id,
+                    mailbox_name=mailbox_name,
+                    subject=email.subject,
+                    sender=email.sender,
+                    date_str=email.date_str,
+                    category="task",
+                    importance_score=result.importance_score,
+                    is_notified=False,
+                    summary=result.action_summary or result.reason
+                )
+
+                md_content = f"""### 🔔 发现重要邮件待处理 [ID: {email_id}] {urgency_txt}
 **来源**: {mailbox_name}
 **发件人**: {email.sender}
 **主　题**: {email.subject}
 **重要度**: {stars} ({result.importance_score}/5)
 {deadline_info}{action_info}
 **判定理由**: {result.reason}
-**时间**: {email.date_str or '刚刚'}"""
+**时间**: {email.date_str or '刚刚'}
+
+💬 追问提示: 回复 `/llm {email_id} 您的提问` 或 `/llm 您的提问` 展开多轮咨询"""
 
                 mail_url = "https://mail.google.com" if "gmail" in mailbox_name.lower() else "https://mail.qq.com"
                 notified = self.notifier.send_dual_notification(
-                    title=title,
+                    title=f"🔔 邮件提醒 [ID:{email_id}]: {email.subject[:25]}",
                     summary=summary,
-                    details=details,
+                    details=details + f"<br/><div class=\"gray\">💬 追问提示: 回复 /llm {email_id} 您的提问</div>",
                     markdown_content=md_content,
                     url=mail_url,
                     btntxt="打开邮箱"
                 )
+                if notified:
+                    with self.storage._get_connection() as conn:
+                        conn.execute("UPDATE processed_emails SET is_notified = 1 WHERE message_id = ?", (email.message_id,))
+                        conn.commit()
+            return
         # 写入数据库记录去重
         self.storage.record_email(
             message_id=email.message_id,
@@ -145,27 +165,45 @@ class MailAssistService:
                 if is_in_quiet_hours(self.cfg.app.quiet_hours):
                     logger.info(f"[Paper] 当前处于夜间休眠免打扰时段 ({self.cfg.app.quiet_hours})，静默记录不发微信推送: {res.title[:30]}")
                 else:
-                    title = f"📚 论文推荐({res.relevance_score}分): {res.title[:30]}"
+                    # 先记录入库以获得该论文在库中的唯一标识与记录
+                    self.storage.record_paper(
+                        paper_id=res.paper_id,
+                        title=res.title,
+                        authors=", ".join(detail.authors),
+                        source=detail.source,
+                        abstract=detail.abstract,
+                        url=res.url,
+                        pdf_url=res.pdf_url or "",
+                        relevance_score=res.relevance_score,
+                        is_notified=False,
+                        analysis=f"{res.core_contribution} | {res.relevance_reason}"
+                    )
+
+                    paper_ref = res.paper_id[:12]
+                    title = f"📚 论文推荐({res.relevance_score}分) [ID:{paper_ref}]: {res.title[:25]}"
                     summary = f"匹配度: 🔥 {res.relevance_score}分 | 来源: {detail.source}"
                     details = f"<b>💡 核心贡献</b>: {res.core_contribution}<br/>" \
                               f"<b>🛠️ 方法亮点</b>: {res.method_highlight}<br/>" \
                               f"<b>🎯 启发价值</b>: {res.relevance_reason}"
                     if res.tags:
                         details += f"<br/><div class=\"gray\">标签: {' '.join(res.tags)}</div>"
+                    details += f"<br/><div class=\"gray\">💬 追问提示: 回复 /llm {paper_ref} 您的提问 或 /llm 提问</div>"
 
                     tags_str = " ".join([f"`{t}`" for t in res.tags]) if res.tags else ""
                     links = f"[🔗 查看论文]({res.url})"
                     if res.pdf_url:
                         links += f" | [📄 下载 PDF]({res.pdf_url})"
 
-                    md_content = f"""### 📚 发现高相关学术论文推荐
+                    md_content = f"""### 📚 发现高相关学术论文推荐 [ID: {paper_ref}]
 **论文**: {res.title}
 **匹配度**: 🔥 **{res.relevance_score} 分** {tags_str}
 > **💡 核心创新**: {res.core_contribution}
 > **🛠️ 方法亮点**: {res.method_highlight}
 > **🎯 与我启发**: {res.relevance_reason}
 
-{links}"""
+{links}
+
+💬 追问提示: 回复 `/llm {paper_ref} 您的提问` 或 `/llm 您的提问` 展开深度探讨"""
 
                     target_url = res.pdf_url or res.url
                     paper_notified = self.notifier.send_dual_notification(
@@ -176,6 +214,11 @@ class MailAssistService:
                         url=target_url,
                         btntxt="查阅论文"
                     )
+                    if paper_notified:
+                        notified_any = True
+                        with self.storage._get_connection() as conn:
+                            conn.execute("UPDATE processed_papers SET is_notified = 1 WHERE paper_id = ?", (res.paper_id,))
+                            conn.commit()
                     if paper_notified:
                         notified_any = True
 
