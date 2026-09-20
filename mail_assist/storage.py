@@ -2,7 +2,7 @@
 
 import os
 import sqlite3
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from loguru import logger
 
@@ -57,6 +57,18 @@ class Storage:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
+            # 3. 对话追问会话表
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS email_chat_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id TEXT NOT NULL,
+                from_user TEXT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_email_chat_id ON email_chat_history(email_id)")
 
             # 3. 索引优化
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_date ON processed_emails(processed_at)")
@@ -149,3 +161,24 @@ class Storage:
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ))
             conn.commit()
+    def add_chat_message(self, email_id: str, from_user: str, role: str, content: str):
+        """记录邮件追问历史."""
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            INSERT INTO email_chat_history (email_id, from_user, role, content)
+            VALUES (?, ?, ?, ?)
+            """, (str(email_id), from_user, role, content))
+            conn.commit()
+
+    def get_chat_history(self, email_id: str, limit: int = 6) -> List[Dict[str, str]]:
+        """获取指定邮件的追问历史."""
+        with self._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT role, content FROM email_chat_history
+            WHERE email_id = ?
+            ORDER BY id ASC
+            LIMIT ?
+            """, (str(email_id), limit))
+            return [{"role": r["role"], "content": r["content"]} for r in cur.fetchall()]

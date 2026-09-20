@@ -26,6 +26,11 @@ class CommandHandler:
         if cmd.lower() in ("/status", "status", "状态"):
             return self._cmd_status()
 
+        # 2.5 AI 深度追问: /llm <问题> 或 /llm last <问题> 或 /llm history
+        if cmd.lower().startswith(("/llm", "／llm")):
+            llm_text = cmd[4:].strip() if len(cmd) > 4 else ""
+            return self._cmd_chat_llm(llm_text, from_user)
+
         # 3. 立即检查邮件
         if cmd.lower() in ("/check", "check", "查邮件", "立即检查"):
             return self._cmd_check()
@@ -135,6 +140,119 @@ class CommandHandler:
 
 🏷️ **核心关键词**: {keywords_preview}
 💬 **AI追问提示**: 发送 `/llm <问题>` 即可针对最新论文/邮件展开多轮深度答疑！"""
+    def _cmd_chat_llm(self, llm_text: str, from_user: str) -> str:
+        """处理针对邮件/学术论文的 /llm 追问."""
+        parts = llm_text.split(maxsplit=1)
+        if not parts:
+            return (
+                "💡 **MailAssist AI 深度追问指南**\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "• `/llm <问题>`: 对最新收到的重要邮件/学术论文展开深度追问\n"
+                "• `/llm last <问题>`: 追问最新一条邮件\n"
+                "• `/llm <ID> <问题>`: 追问指定邮件/论文\n"
+                "• `/llm history`: 查看最新邮件概况与已有追问历史"
+            )
+
+        first_token = parts[0].strip().lower()
+        if first_token in ("last", "latest") or (first_token.isalnum() and len(first_token) >= 8 and not any('\u4e00' <= c <= '\u9fff' for c in first_token)) or first_token.isdigit():
+            target = first_token
+            question = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            target = "last"
+            question = llm_text
+
+        # 查找邮件/论文
+        with self.service.storage._get_connection() as conn:
+            row = None
+            if target in ("last", "latest"):
+                cur = conn.execute("SELECT paper_id as id, title as subject, authors as sender, relevance_score as score, analysis as summary, abstract as body_text, created_at FROM processed_papers WHERE is_notified = 1 ORDER BY created_at DESC LIMIT 1")
+                row = cur.fetchone()
+                if not row:
+                    cur = conn.execute("SELECT message_id as id, subject, sender, importance_score as score, summary, '' as body_text, processed_at as created_at FROM processed_emails WHERE is_notified = 1 ORDER BY processed_at DESC LIMIT 1")
+                    row = cur.fetchone()
+                if not row:
+                    cur = conn.execute("SELECT paper_id as id, title as subject, authors as sender, relevance_score as score, analysis as summary, abstract as body_text, created_at FROM processed_papers ORDER BY created_at DESC LIMIT 1")
+                    row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT paper_id as id, title as subject, authors as sender, relevance_score as score, analysis as summary, abstract as body_text, created_at FROM processed_papers WHERE paper_id = ? OR title LIKE ? ORDER BY created_at DESC LIMIT 1", (target, f"%{target}%"))
+                row = cur.fetchone()
+                if not row:
+                    cur = conn.execute("SELECT message_id as id, subject, sender, importance_score as score, summary, '' as body_text, processed_at as created_at FROM processed_emails WHERE message_id = ? OR subject LIKE ? ORDER BY processed_at DESC LIMIT 1", (target, f"%{target}%"))
+                    row = cur.fetchone()
+
+        if not row:
+            return f"❌ 未在邮件/论文库中找到相关记录 (查询目标: `{target}`)。\n请确认是否有已推送的重要邮件/论文，或发送 `/check` 立即检查！"
+
+        item = dict(row)
+        item_id = item["id"]
+        subject = item.get("subject", "无主题邮件")
+        sender = item.get("sender", "未知发件人/作者")
+        score = item.get("score", 0)
+        ai_summary = item.get("summary", "")
+
+        # 查看概况
+        if not question or question.lower() == "history":
+            hist = self.service.storage.get_chat_history(item_id) if hasattr(self.service.storage, "get_chat_history") else []
+            return (
+                f"📬 **当前选中邮件/论文**\n"
+                f"📌 《{subject}》\n"
+                f"👤 来源: {sender} | 🔥 评分: {score}分\n"
+                f"💡 AI摘要: {ai_summary}\n\n"
+                f"💬 已有追问历史: {len(hist)} 条消息。\n"
+                f"您可以发送：`/llm 您的追问问题` 与 AI 针对论文/邮件展开深入探讨！"
+            )
+
+        # 调用大模型执行对话
+        hist = self.service.storage.get_chat_history(item_id) if hasattr(self.service.storage, "get_chat_history") else []
+        context_parts = [
+            f"【邮件/论文主题】: {subject}",
+            f"【发件人/作者】: {sender}",
+            f"【重要度/学术价值评分】: {score}分",
+            f"【前期AI摘要与分析】:\n{ai_summary}",
+            f"【邮件正文/论文摘要片段】:\n{item.get('body_text', '')[:5000]}"
+        ]
+        doc_context = "\n".join(context_parts)
+        system_prompt = f"""你是一位专业的学术论文研读与邮件助理。
+请基于以下由【MailAssist】分析的重要邮件或前沿学术论文内容，回答用户的追问。
+
+--- 邮件/论文上下文 ---
+{doc_context}
+--- 结束 ---
+
+回答要求：
+1. 严格依据上述邮件/论文事实作答，深度分析技术创新点、实验结论或核心事项。
+2. 语言条理清晰，层次分明，逻辑严密，适合企业微信或手机端阅读。
+3. 控制在 500 字以内，避免冗长废话，突出要点。"""
+
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in hist[-6:]:
+            r = h.get("role", "user")
+            c = h.get("content", "")
+            if r in ("user", "assistant") and c:
+                messages.append({"role": r, "content": c})
+        messages.append({"role": "user", "content": question})
+
+        client = self.service.llm.client
+        model = self.service.llm.config.model
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=800
+            )
+            ans = resp.choices[0].message.content.strip()
+            if hasattr(self.service.storage, "add_chat_message"):
+                self.service.storage.add_chat_message(item_id, from_user, "user", question)
+                self.service.storage.add_chat_message(item_id, from_user, "assistant", ans)
+            return (
+                f"🤖 **【MailAssist·学术与邮件答疑】**\n"
+                f"📄 《{subject}》\n"
+                f"❓ 问: {question}\n\n"
+                f"💡 答:\n{ans}"
+            )
+        except Exception as e:
+            return f"⚠️ 追问回答生成失败: {e}"
     def _cmd_check(self) -> str:
         import threading
         threading.Thread(target=self.service.check_all_mailboxes, daemon=True).start()
