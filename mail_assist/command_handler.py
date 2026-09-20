@@ -82,25 +82,29 @@ class CommandHandler:
     def _cmd_help(self) -> str:
         return """📖 **MailAssist 快捷指令手册**
 ━━━━━━━━━━━━━━━━━━
+🔹 **AI 深度追问与多轮对话**:
+• `/llm <问题>`: 对最新收到的重要邮件/学术论文展开深度追问
+• `/llm last <问题>`: 追问最新一条邮件
+• `/llm <ID> <问题>`: 追问指定 ID 邮件 (如 `/llm 5 ...`)
+• `/llm history`: 查看最新邮件概况与已有追问历史
+
 🔹 **服务与检查**:
-- `/check` 或 `查邮件`: 立即触发一次全邮箱检查
-- `/status` 或 `状态`: 查看当前配置、免打扰与各邮箱范围
+• `/check` 或 `查邮件`: 立即触发一次全邮箱检查
+• `/status` 或 `状态`: 查看当前配置、免打扰与各邮箱范围
 
 🔹 **免打扰休眠设置 (夜间不打扰)**:
-- `/quiet 23:00-09:00`: 设置夜间休眠时段 (在此期间静默不推送)
-- `/quiet off`: 关闭免打扰，全天候实时推送
+• `/quiet 23:00-09:00`: 设置夜间休眠时段 (在此期间静默不推送)
+• `/quiet off`: 关闭免打扰，全天候实时推送
 
 🔹 **抓取范围与频率调参**:
-- `/days <天数>`: 全局修改抓取天数 (如 `/days 7`)
-- `/days <邮箱名> <天数>`: 单独为指定邮箱设置天数 (如 `/days Gmail 3` 或 `/days QQ 7`)
-- `/interval <秒数>`: 修改轮询频率 (如 `/interval 60`)
-- `/score <分数>`: 修改学术论文推荐阈值 (如 `/score 75`)
+• `/days <天数>`: 全局修改抓取天数 (如 `/days 7`)
+• `/days <邮箱名> <天数>`: 单独为指定邮箱设置天数 (如 `/days Gmail 3` 或 `/days QQ 7`)
+• `/interval <秒数>`: 修改轮询频率 (如 `/interval 60`)
+• `/score <分数>`: 修改学术论文推荐阈值 (如 `/score 75`)
 
 🔹 **研究画像管理**:
-- `/addkw <关键词>`: 新增关注关键词
-- `/delkw <关键词>`: 移除关注关键词
-
-💡 直接在微信对话框回复以上命令即可实时生效！"""
+• `/addkw <关键词>`: 新增关注关键词
+• `/delkw <关键词>`: 移除关注关键词"""
 
     def _cmd_status(self) -> str:
         cfg = self.service.cfg
@@ -129,8 +133,8 @@ class CommandHandler:
 📬 **各邮箱监控与检索范围**:
 {boxes_text}
 
-🏷️ **核心关键词**: {keywords_preview}"""
-
+🏷️ **核心关键词**: {keywords_preview}
+💬 **AI追问提示**: 发送 `/llm <问题>` 即可针对最新论文/邮件展开多轮深度答疑！"""
     def _cmd_check(self) -> str:
         import threading
         threading.Thread(target=self.service.check_all_mailboxes, daemon=True).start()
