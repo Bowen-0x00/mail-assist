@@ -54,6 +54,24 @@ It simultaneously listens to multiple email accounts (Gmail, QQ Mail, 163 Mail, 
          └───────────────────────────┘
 ```
 
+
+### 💬 Interactive WeChat Commands
+
+| Command | Alias | Description | Example |
+| :--- | :--- | :--- | :--- |
+| **`/status`** | `状态` | **Live probe** of LLM connectivity & Zhihu Cookie health | `/status` |
+| **`/llm model`** | `模型` | View active LLM model and recommended candidates | `/llm model` |
+| **`/llm model <Name>`**| - | **Hot-switch active model** with pre-flight connection test | `/llm model gemini-3.1-pro-preview` |
+| **`/llm <question>`** | - | Multi-turn conversational follow-up on latest email/paper | `/llm What is the methodology highlight?` |
+| **`/cookie <Cookie>`** | `更新知乎` | **Hot-update Zhihu cookie** across projects from WeChat | `/cookie _xsrf=...` |
+| **`/check`** | `查邮件` | Trigger an immediate round of email fetch and AI analysis | `/check` |
+| **`/quiet 23:00-09:00`**| `休眠` | Set quiet hours window (suppresses notifications) | `/quiet 23:00-09:00` |
+| **`/days <N>`** | `范围` | Adjust global lookback scope (e.g. 3 days) | `/days 3` |
+| **`/days <Box> <N>`** | - | Adjust lookback scope for a specific mailbox | `/days Gmail 3` |
+| **`/interval <sec>`** | `频率` | Dynamically adjust polling interval (default 180s) | `/interval 60` |
+| **`/score <N>`** | `阈值` | Adjust scholar paper recommendation threshold (default 65) | `/score 75` |
+| **`/help`** | `帮助` | Display interactive command manual | `/help` |
+
 ---
 
 ## 🚀 Quick Start
