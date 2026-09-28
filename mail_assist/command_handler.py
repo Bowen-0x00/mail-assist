@@ -31,6 +31,10 @@ class CommandHandler:
             llm_text = cmd[4:].strip() if len(cmd) > 4 else ""
             return self._cmd_chat_llm(llm_text, from_user)
 
+        # 2.8 热更新知乎 Cookie (跨应用同步): /cookie <新Cookie>
+        m_cookie = re.match(r'^(?:/cookie|cookie|更新知乎)\s*(.+)$', cmd, re.IGNORECASE | re.DOTALL)
+        if m_cookie:
+            return self._cmd_update_cookie(m_cookie.group(1).strip())
         # 3. 立即检查邮件
         if cmd.lower() in ("/check", "check", "查邮件", "立即检查"):
             return self._cmd_check()
@@ -92,7 +96,8 @@ class CommandHandler:
 • `/llm last <问题>`: 追问最新一条邮件
 • `/llm <ID> <问题>`: 追问指定 ID 邮件 (如 `/llm 5 ...`)
 • `/llm history`: 查看最新邮件概况与已有追问历史
-
+• `/llm model`: 查看大模型连接状态与推荐模型列表
+• `/llm model <模型名称>`: 切换当前大模型 (如 `/llm model gemini-3.1-pro-preview`)
 🔹 **服务与检查**:
 • `/check` 或 `查邮件`: 立即触发一次全邮箱检查
 • `/status` 或 `状态`: 查看当前配置、免打扰与各邮箱范围
@@ -109,8 +114,10 @@ class CommandHandler:
 
 🔹 **研究画像管理**:
 • `/addkw <关键词>`: 新增关注关键词
-• `/delkw <关键词>`: 移除关注关键词"""
+• `/delkw <关键词>`: 移除关注关键词
 
+🔹 **知乎爬虫凭据热更新 (跨应用共享)**:
+• `/cookie <新Cookie>`: 微信直接热更新知乎 Cookie，免登服务器！"""
     def _cmd_status(self) -> str:
         cfg = self.service.cfg
         quiet_status = "休眠静默中 🌙" if is_in_quiet_hours(cfg.app.quiet_hours) else "活跃监控中 🟢"
@@ -127,19 +134,53 @@ class CommandHandler:
         if len(cfg.user_profile.keywords) > 6:
             keywords_preview += f" 等共 {len(cfg.user_profile.keywords)} 个"
 
-        return f"""📊 **MailAssist 当前运行状态**
+        # 1. 实时探测大模型健康状态
+        llm_model = self.service.llm.config.model
+        llm_ok, llm_cost = self.service.llm.test_model(llm_model)
+        llm_badge = f"🟢 连通正常 (耗时: {llm_cost})" if llm_ok else f"🔴 异常 ({llm_cost})"
+
+        # 2. 实时探测知乎 Cookie 状态 (跨应用检查)
+        cookie_desc = "⚪ 未配置"
+        import requests
+        import os
+        for cp in ["../social_radar/config/config.yaml", "/root/social_radar/config/config.yaml"]:
+            if os.path.exists(cp):
+                try:
+                    with open(cp, "r", encoding="utf-8") as f:
+                        cand_cfg = yaml.safe_load(f) or {}
+                    c_val = cand_cfg.get("zhihu", {}).get("cookie", "")
+                    if c_val:
+                        headers = {
+                            "accept": "*/*",
+                            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                            "cookie": c_val
+                        }
+                        r = requests.get("https://www.zhihu.com/api/v4/me?include=is_realname", headers=headers, timeout=5)
+                        if r.status_code == 200:
+                            u_name = r.json().get("name", "")
+                            cookie_desc = f"🟢 正常生效 (账号: {u_name or '已登录'})"
+                        else:
+                            cookie_desc = f"🔴 凭据失效 (HTTP {r.status_code})"
+                        break
+                except Exception as e:
+                    cookie_desc = f"⚠️ 探测超时 ({str(e)[:30]})"
+
+        return f"""📊 **MailAssist 当前运行状态看板**
 ━━━━━━━━━━━━━━━━━━
 🟢 **服务状态**: 24/7 守护运行中
+🤖 **大模型引擎**: `{llm_model}` -> {llm_badge}
+🍪 **知乎抓取凭据**: {cookie_desc}
 🌙 **免打扰时段**: `{cfg.app.quiet_hours}` ({quiet_status})
 ⏰ **全局轮询周期**: 每 {cfg.app.poll_interval} 秒 (约 {cfg.app.poll_interval // 60} 分钟)
 🎯 **论文推送阈值**: {cfg.app.scholar_score_threshold} 分
-🤖 **大模型**: {cfg.llm.model}
 
 📬 **各邮箱监控与检索范围**:
 {boxes_text}
 
 🏷️ **核心关键词**: {keywords_preview}
-💬 **AI追问提示**: 发送 `/llm <问题>` 即可针对最新论文/邮件展开多轮深度答疑！"""
+💡 提示:
+• 发送 `/llm model` 可切换/测试其他模型
+• 发送 `/cookie <新Cookie>` 可热更知乎凭据"""
     def _cmd_chat_llm(self, llm_text: str, from_user: str) -> str:
         """处理针对邮件/学术论文的 /llm 追问."""
         parts = llm_text.split(maxsplit=1)
@@ -154,6 +195,10 @@ class CommandHandler:
             )
 
         first_token = parts[0].strip().lower()
+        if first_token in ("model", "models", "模型"):
+            model_arg = parts[1].strip() if len(parts) > 1 else ""
+            return self._cmd_llm_model(model_arg)
+
         if first_token in ("last", "latest") or (first_token.isalnum() and len(first_token) >= 8 and not any('\u4e00' <= c <= '\u9fff' for c in first_token)) or first_token.isdigit():
             target = first_token
             question = parts[1].strip() if len(parts) > 1 else ""
@@ -253,6 +298,87 @@ class CommandHandler:
             )
         except Exception as e:
             return f"⚠️ 追问回答生成失败: {e}"
+    def _cmd_llm_model(self, model_arg: str) -> str:
+        """处理 /llm model 查看状态或切换大模型指令."""
+        if not model_arg or model_arg.lower() in ("status", "check", "list", "状态"):
+            ok, cost_or_err = self.service.llm.test_model(self.service.llm.config.model)
+            status_badge = f"🟢 连通正常 (响应耗时: {cost_or_err})" if ok else f"🔴 异常 ({cost_or_err})"
+
+            return (
+                "🤖 **MailAssist 大模型状态看板**\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"📌 当前主模型: `{self.service.llm.config.model}`\n"
+                f"⚡ 实时连通性: {status_badge}\n"
+                f"🌐 接口地址: `{self.service.llm.config.base_url}`\n\n"
+                "📋 **常用候选模型**:\n"
+                "• `gemini-3.1-pro-preview` (推荐：稳定、速度快)\n"
+                "• `gemini-3.6-flash`\n"
+                "• `gemini-3.8-flash`\n"
+                "• `deepseek-chat`\n\n"
+                "💡 **切换模型命令**:\n"
+                "发送：`/llm model <模型名称>`\n"
+                "例如：`/llm model gemini-3.1-pro-preview`"
+            )
+
+        target_model = model_arg.strip()
+        logger.info(f"[MailAssist] 用户请求切换大模型至: {target_model}")
+
+        ok, cost_or_err = self.service.llm.test_model(target_model)
+        if ok:
+            old_model = self.service.llm.config.model
+            self.service.llm.config.model = target_model
+            self._update_yaml_field("config/config.yaml", ["llm", "model"], target_model)
+            return (
+                "✅ **大模型切换成功！**\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"🔄 原模型: `{old_model}`\n"
+                f"🤖 新模型: `{target_model}`\n"
+                f"⚡ 连通性测试: 🟢 通过 (耗时: {cost_or_err})\n"
+                "💾 配置文件已持久化保存，后续邮件分析将自动使用该模型！"
+            )
+        else:
+            return (
+                "⚠️ **模型连通性测试失败！**\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"目标模型: `{target_model}`\n"
+                f"❌ 失败原因: {cost_or_err}\n\n"
+                f"🛡️ 为保障邮件监控不中断，系统仍保持当前可用模型: `{self.service.llm.config.model}`\n"
+                "💡 建议：发送 `/llm model` 查看可用候选模型列表。"
+            )
+
+    def _cmd_update_cookie(self, new_cookie: str) -> str:
+        """跨应用更新知乎 Cookie (同步更新 social_radar 与 wechat_obsidian)."""
+        if len(new_cookie) < 30 or "z_c0" not in new_cookie:
+            return "⚠️ Cookie 格式似乎不完整，请完整复制后重试。"
+
+        import requests
+        import os
+        for p in ["../social_radar/config/config.yaml", "/root/social_radar/config/config.yaml", "../wechat_obsidian/config.yaml", "/root/wechat_obsidian/config.yaml"]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        c = yaml.safe_load(f) or {}
+                    c.setdefault("zhihu", {})["cookie"] = new_cookie
+                    with open(p, "w", encoding="utf-8") as f:
+                        yaml.dump(c, f, allow_unicode=True, sort_keys=False)
+                except Exception as e:
+                    logger.warning(f"[MailAssist] 更新 {p} 异常: {e}")
+
+        test_url = "https://www.zhihu.com/api/v4/me?include=is_realname"
+        headers = {
+            "accept": "*/*",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "cookie": new_cookie
+        }
+        try:
+            r = requests.get(test_url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                name = r.json().get("name", "用户")
+                return f"🎉 **知乎 Cookie 热更新成功！**\n\n- 账号: `{name}` (HTTP 200 OK)\n- 各系统凭据已同步更新。"
+            return f"⚠️ Cookie 已写入，但知乎服务端验证返回 HTTP {r.status_code}，可能触发了滑块验证码。"
+        except Exception as e:
+            return f"⚠️ Cookie 已保存，但验证异常: {e}"
+
     def _cmd_check(self) -> str:
         import threading
         threading.Thread(target=self.service.check_all_mailboxes, daemon=True).start()

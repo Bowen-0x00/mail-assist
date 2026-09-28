@@ -60,6 +60,18 @@ class MailAssistService:
         """处理日常事务/工作/通知邮件."""
         result: TaskAnalysisResult = self.task_agent.analyze(email)
         logger.info(f"[{mailbox_name}] 事务分析完成: 重要度 {result.importance_score}/5, 需通知={result.need_notify}")
+        if getattr(self.llm, "last_error", None):
+            self.notifier.send_alert(
+                alert_key="mail_assist_llm_alert",
+                title="⚠️ 【邮件助手 - 大模型异常告警】",
+                content=(
+                    f"🤖 当前主模型: `{self.llm.config.model}`\n"
+                    f"❌ 错误详情: {self.llm.last_error}\n\n"
+                    "📌 处理: 系统本轮已自动切换为启发式规则降级处理。\n"
+                    "💡 建议: 在微信回复 `/llm model` 检查模型连通性，或回复 `/llm model <新模型>` 切换可用模型！"
+                )
+            )
+
 
         notified = False
         if result.need_notify:
@@ -158,6 +170,18 @@ class MailAssistService:
             # Agent 智能评估
             res: ScholarAnalysisResult = self.scholar_agent.evaluate_paper(detail)
             logger.info(f"[Paper] 《{res.title[:30]}...》相关度评分: {res.relevance_score} (阈值: {self.cfg.app.scholar_score_threshold})")
+            if getattr(self.llm, "last_error", None):
+                self.notifier.send_alert(
+                    alert_key="mail_assist_llm_alert",
+                    title="⚠️ 【邮件助手 - 大模型异常告警】",
+                    content=(
+                        f"🤖 当前主模型: `{self.llm.config.model}`\n"
+                        f"❌ 错误详情: {self.llm.last_error}\n\n"
+                        "📌 处理: 系统本轮已自动切换为启发式规则降级处理。\n"
+                        "💡 建议: 在微信回复 `/llm model` 检查模型连通性，或回复 `/llm model <新模型>` 切换可用模型！"
+                    )
+                )
+
 
             paper_notified = False
             if res.need_notify:

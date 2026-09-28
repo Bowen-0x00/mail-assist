@@ -33,6 +33,7 @@ EXCLUDE_PATTERNS = {
     ".git",
     "venv",
     ".env",
+    "config.yaml",  # 核心保护：不覆盖服务器上的真实配置与热更新 Cookie！
     "data"  # 核心保护：不覆盖服务器上的 SQLite 数据库与已处理记录！
 }
 

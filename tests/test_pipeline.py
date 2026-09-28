@@ -2,7 +2,9 @@
 
 import pytest
 import os
+import sys
 import shutil
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from mail_assist.config import ConfigManager
 from mail_assist.storage import Storage
 from mail_assist.parser import EmailParser

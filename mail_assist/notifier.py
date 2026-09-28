@@ -33,6 +33,21 @@ class BaseNotifier:
     def send_markdown(self, content: str, title: Optional[str] = None) -> bool:
         raise NotImplementedError
 
+    def send_alert(self, alert_key: str, title: str, content: str, cooldown_seconds: int = 300) -> bool:
+        """发送告警通知给用户，内置防刷屏冷却时间 (默认 5 分钟内同一类型告警仅发送一次)."""
+        now = time.time()
+        if not hasattr(self, "_alert_cooldowns"):
+            self._alert_cooldowns = {}
+        last_time = self._alert_cooldowns.get(alert_key, 0.0)
+        if now - last_time < cooldown_seconds:
+            logger.debug(f"[Alert] 告警 [{alert_key}] 处于冷却中，跳过重复提醒")
+            return False
+
+        self._alert_cooldowns[alert_key] = now
+        full_text = f"{title}\n━━━━━━━━━━━━━━━━━━\n{content}"
+        logger.warning(f"[Alert] 触发告警通知: {title}")
+        return self.send_markdown(full_text, title=title)
+
 
 class PushPlusNotifier(BaseNotifier):
     """PushPlus (推送加) 个人微信直推器."""

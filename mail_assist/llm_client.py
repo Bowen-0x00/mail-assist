@@ -14,13 +14,87 @@ class LLMClient:
     def __init__(self, config: LLMConfig):
         self.config = config
         self.client: Optional[OpenAI] = None
+        self.direct_client: Optional[OpenAI] = None
+        self.last_error: Optional[str] = None
+
         if self.config.api_key and self.config.api_key != "YOUR_LLM_API_KEY":
-            http_client = httpx.Client(timeout=45.0)
+            proxy = getattr(self.config, "proxy", None)
+            http_client = httpx.Client(timeout=35.0, proxy=proxy) if proxy else httpx.Client(timeout=35.0)
             self.client = OpenAI(
                 base_url=self.config.base_url,
                 api_key=self.config.api_key,
                 http_client=http_client
             )
+            if proxy:
+                self.direct_client = OpenAI(
+                    base_url=self.config.base_url,
+                    api_key=self.config.api_key,
+                    http_client=httpx.Client(timeout=35.0)
+                )
+            else:
+                self.direct_client = self.client
+
+    def _call_chat_completions(self, messages, response_format=None) -> str:
+        """调用大模型，具备自动多候选模型故障转移与代理连接故障自愈能力."""
+        candidate_models = [self.config.model, "gemini-3.1-pro-preview", "gemini-3.6-flash", "gemini-3.8-flash", "deepseek-chat"]
+        seen = set()
+        ordered = []
+        for m in candidate_models:
+            if m and m not in seen:
+                seen.add(m)
+                ordered.append(m)
+
+        clients = [self.client]
+        if self.direct_client and self.direct_client is not self.client:
+            clients.append(self.direct_client)
+
+        last_err = None
+        for cli in clients:
+            for m in ordered:
+                try:
+                    kwargs = {
+                        "model": m,
+                        "messages": messages,
+                        "temperature": self.config.temperature
+                    }
+                    if response_format:
+                        kwargs["response_format"] = response_format
+                    resp = cli.chat.completions.create(**kwargs)
+                    content = resp.choices[0].message.content or ""
+                    if content.strip():
+                        if m != self.config.model:
+                            logger.info(f"[LLM] 模型 [{self.config.model}] 异常，成功故障转移至 [{m}]")
+                        return content
+                except Exception as e:
+                    last_err = e
+                    continue
+        raise last_err or RuntimeError("所有大模型通道均不可用")
+
+    def test_model(self, model_name: str) -> tuple[bool, str]:
+        """测试指定模型连通性与时延."""
+        if not self.is_configured():
+            return False, "未配置 API Key"
+        import time
+        start_time = time.time()
+        clients = [self.client]
+        if self.direct_client and self.direct_client is not self.client:
+            clients.append(self.direct_client)
+        last_err = ""
+        for cli in clients:
+            try:
+                resp = cli.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=5,
+                    timeout=8.0
+                )
+                cost = time.time() - start_time
+                if resp.choices and resp.choices[0].message:
+                    return True, f"{cost:.2f}s"
+            except Exception as e:
+                last_err = str(e)
+                continue
+        return False, last_err[:120]
 
     def is_configured(self) -> bool:
         """检查是否已正确配置 API Key."""
@@ -33,34 +107,32 @@ class LLMClient:
             return None
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.config.model,
+            raw_content = self._call_chat_completions(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=self.config.temperature,
                 response_format={"type": "json_object"}
             )
-            raw_content = response.choices[0].message.content or "{}"
+            self.last_error = None
             return self._parse_json_safely(raw_content)
         except Exception as e:
-            # 部分模型不支持 response_format={"type": "json_object"}，降级普通重试
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.config.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt + "\n务必直接输出合法的标准 JSON，切勿包含其他多余解释或前后缀。"},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=self.config.temperature
-                )
-                raw_content = response.choices[0].message.content or "{}"
-                return self._parse_json_safely(raw_content)
-            except Exception as e2:
-                logger.error(f"[LLM] 调用大语言模型失败: {e2}")
-                return None
+            self.last_error = str(e)
+            logger.error(f"[LLM] 调用大语言模型失败: {e}")
+            return None
 
+    def chat_text(self, messages: list) -> str:
+        """常规对话补全 (用于 /llm 追问)."""
+        if not self.is_configured():
+            return "⚠️ 未配置有效 API Key。"
+        try:
+            ans = self._call_chat_completions(messages)
+            self.last_error = None
+            return ans.strip() or "未能获取有效回答。"
+        except Exception as e:
+            self.last_error = str(e)
+            logger.error(f"[LLM] 追问对话异常: {e}")
+            return f"⚠️ 追问回答生成失败: {e}"
     def _parse_json_safely(self, text: str) -> Dict[str, Any]:
         """清理并解析大模型返回的 JSON 字符串."""
         text = text.strip()
