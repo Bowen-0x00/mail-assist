@@ -192,14 +192,61 @@ class WeChatNotifier(BaseNotifier):
         }
         return self._send_message("textcard", payload, to_user)
 
-    def send_text(self, content: str, to_user: Optional[str] = None) -> bool:
-        """发送纯文本消息."""
-        return self._send_message("text", {"content": content}, to_user)
+    def _split_markdown_chunks(self, content: str, max_bytes: int = 1900) -> list:
+        """将长 Markdown 在段落边界智能切片，严控单条在 1900 字节以内，避免企业微信截断."""
+        if len(content.encode("utf-8")) <= max_bytes:
+            return [content]
+
+        paragraphs = content.split("\n\n")
+        chunks = []
+        current_chunk = ""
+
+        for p in paragraphs:
+            candidate = f"{current_chunk}\n\n{p}" if current_chunk else p
+            if len(candidate.encode("utf-8")) <= max_bytes:
+                current_chunk = candidate
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                if len(p.encode("utf-8")) > max_bytes:
+                    lines = p.split("\n")
+                    sub_chunk = ""
+                    for line in lines:
+                        sub_cand = f"{sub_chunk}\n{line}" if sub_chunk else line
+                        if len(sub_cand.encode("utf-8")) <= max_bytes:
+                            sub_chunk = sub_cand
+                        else:
+                            if sub_chunk:
+                                chunks.append(sub_chunk)
+                            sub_chunk = line
+                    current_chunk = sub_chunk
+                else:
+                    current_chunk = p
+        if current_chunk:
+            chunks.append(current_chunk)
+        return chunks
 
     def send_markdown(self, content: str, title: Optional[str] = None, to_user: Optional[str] = None) -> bool:
-        """发送 Markdown (企业微信客户端原生渲染)."""
-        return self._send_message("markdown", {"content": content}, to_user)
+        chunks = self._split_markdown_chunks(content, max_bytes=1900)
+        success = True
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                time.sleep(0.5)
+                chunk = f"> *(接上条...)*\n\n{chunk}"
+            ok = self._send_message("markdown", {"content": chunk}, to_user)
+            success = success and ok
+        return success
 
+    def send_text(self, content: str, to_user: Optional[str] = None) -> bool:
+        chunks = self._split_markdown_chunks(content, max_bytes=1900)
+        success = True
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                time.sleep(0.5)
+                chunk = f"(接上条...)\n{chunk}"
+            ok = self._send_message("text", {"content": chunk}, to_user)
+            success = success and ok
+        return success
     def _send_message(self, msgtype: str, payload: Dict[str, Any], to_user: Optional[str] = None) -> bool:
         """底层消息发送逻辑."""
         token = self.get_access_token()
