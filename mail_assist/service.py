@@ -164,7 +164,8 @@ class MailAssistService:
                 source=p_item.source,
                 url=p_item.url,
                 pdf_url=p_item.pdf_url,
-                snippet=p_item.snippet
+                snippet=p_item.snippet,
+                authors=p_item.authors
             )
 
             # Agent 智能评估

@@ -134,13 +134,29 @@ class ScholarAgent:
 
     def evaluate_paper(self, paper: PaperDetail) -> ScholarAnalysisResult:
         """阅读并评估论文相关度与核心亮点."""
+        # 强安全前置拦截：若为学者个人主页链接，直接静默拦截不打高分
+        lower_url = (paper.url or "").lower()
+        if paper.source == "profile" or "citations?user=" in lower_url or "/citations?" in lower_url:
+            logger.info(f"[ScholarAgent] 拦截学者个人主页条目: {paper.title}")
+            return ScholarAnalysisResult(
+                paper_id=paper.paper_id,
+                title=paper.title,
+                relevance_score=10,
+                core_contribution="该条目为学者个人主页或系统链接，非具体学术论文，已拦截。",
+                method_highlight="无",
+                relevance_reason="非学术论文，不予推送",
+                tags=["学者主页", "已过滤"],
+                need_notify=False,
+                url=paper.url,
+                pdf_url=paper.pdf_url
+            )
+
         if self.llm.is_configured():
             res = self._evaluate_with_llm(paper)
             if res:
                 return res
 
         return self._heuristic_evaluate(paper)
-
     def _evaluate_with_llm(self, paper: PaperDetail) -> Optional[ScholarAnalysisResult]:
         topics_desc = "\n".join([f"- {t}" for t in self.profile.research_topics])
         keywords_desc = ", ".join(self.profile.keywords)
@@ -162,6 +178,10 @@ class ScholarAgent:
 - 65-79分：相关领域前沿，存在技术借鉴意义或值得泛读。
 - 0-64分：边缘相关或属于排除领域，无需打扰用户。
 
+【过滤红线规范】
+- 评估对象必须是【具体的学术研究论文】。
+- 严禁向用户推荐【学者个人主页 / 导师主页 / 机构主页】！无论该学者学术声誉多高、研究方向与用户多么契合，只要该条目为学者个人主页、主页链接 (包含 citations?user=)、会议征稿通知或订阅快讯本身，必须一律判定为非论文：
+  relevance_score 必须给出 0 到 15 分的低分，need_notify 强制为 false，core_contribution 说明：“该条目为学者主页，非学术论文”。
 请输出标准 JSON 格式：
 {{
   "relevance_score": 0到100的整数分,
@@ -206,8 +226,22 @@ class ScholarAgent:
 
     def _heuristic_evaluate(self, paper: PaperDetail) -> ScholarAnalysisResult:
         """基于关键词交集的启发式匹配兜底."""
+        lower_url = (paper.url or "").lower()
+        if paper.source == "profile" or "citations?user=" in lower_url:
+            return ScholarAnalysisResult(
+                paper_id=paper.paper_id,
+                title=paper.title,
+                relevance_score=10,
+                core_contribution="学者个人主页，已拦截。",
+                method_highlight="无",
+                relevance_reason="非具体论文",
+                tags=["学者主页", "已过滤"],
+                need_notify=False,
+                url=paper.url,
+                pdf_url=paper.pdf_url
+            )
+
         content = f"{paper.title} {paper.abstract}".lower()
-        matched_keywords = [kw for kw in self.profile.keywords if kw.lower() in content]
         matched_topics = [tp for tp in self.profile.research_topics if any(k in content for k in tp.lower().split())]
 
         score = 40

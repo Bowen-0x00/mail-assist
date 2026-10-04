@@ -37,8 +37,30 @@ class ScholarFetcher:
             self.session.proxies = {"http": proxy, "https": proxy}
             logger.info(f"[Scholar] 启用代理抓取论文: {proxy}")
 
-    def get_paper_detail(self, paper_id: str, title: str, source: str, url: str, pdf_url: Optional[str] = None, snippet: str = "") -> PaperDetail:
+    def get_paper_detail(
+        self,
+        paper_id: str,
+        title: str,
+        source: str,
+        url: str,
+        pdf_url: Optional[str] = None,
+        snippet: str = "",
+        authors: str = ""
+    ) -> PaperDetail:
         """根据论文标识或来源综合抓取论文详情与核心正文."""
+        # 快速防护：若识别出学者主页链接，直接标记拦截，不发起昂贵的外部检索
+        lower_url = (url or "").lower()
+        if "citations?user=" in lower_url or "/citations?" in lower_url:
+            return PaperDetail(
+                paper_id=paper_id,
+                title=title,
+                authors=[],
+                source="profile",
+                abstract="[系统拦截] 该条目为学者个人主页，非学术论文。",
+                url=url,
+                pdf_url=None
+            )
+
         clean_aid = self._clean_arxiv_id(paper_id)
         if clean_aid:
             detail = self.fetch_arxiv_metadata(clean_aid)
@@ -48,19 +70,24 @@ class ScholarFetcher:
                     detail.pdf_snippet = pdf_snip
                 return detail
 
-        # 若非 arXiv 或 arXiv 慢，尝试 Semantic Scholar
-        detail = self.fetch_semantic_scholar_metadata(title)
+        # 清洗可能存在的 [PDF] / [HTML] 标记后检索 Semantic Scholar
+        clean_title = re.sub(r'^\[(PDF|HTML)\]\s*', '', title, flags=re.IGNORECASE).strip()
+        detail = self.fetch_semantic_scholar_metadata(clean_title)
         if detail:
+            # 若 Semantic Scholar 摘要为空，回退使用邮件自带的 snippet
+            if not detail.abstract and snippet:
+                detail.abstract = snippet
             if detail.pdf_url:
                 pdf_snip = self.download_and_extract_pdf_sections(detail.pdf_url, f"scholar_{paper_id}")
                 detail.pdf_snippet = pdf_snip
             return detail
 
-        # 最低兜底：保留邮件内自带的 snippet
+        # 最低兜底：保留邮件内自带的 authors 与 snippet
+        parsed_authors = [a.strip() for a in authors.split(",") if a.strip()] if isinstance(authors, str) and authors else []
         return PaperDetail(
             paper_id=paper_id,
-            title=title,
-            authors=[],
+            title=clean_title,
+            authors=parsed_authors,
             source=source,
             abstract=snippet or "",
             url=url,
